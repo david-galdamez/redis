@@ -3,4 +3,7 @@ project(redis)
 
 set(CMAKE_CXX_STANDARD 23)
 
-add_executable(redis src/main.cpp)
+include_directories(include)
+add_executable(redis src/main.cpp
+        include/connection.h
+        src/connections.cpp)
