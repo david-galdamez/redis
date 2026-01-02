@@ -14,7 +14,6 @@ int main() {
     std::cerr << std::unitbuf;
 
     const int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    std::cout << server_fd << std::endl;
     if (server_fd < 0) {
         std::cerr << "Failed to create server socket\n";
         return 1;
@@ -75,8 +74,6 @@ int main() {
         for (int n = 0; n < nfds; ++n) {
 
             int current_fd = events[n].data.fd;
-
-            std::cout << current_fd << std::endl;
 
             if (current_fd == server_fd) {
                 redis_server.acceptClients(server_fd);

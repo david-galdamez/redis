@@ -6,4 +6,6 @@ set(CMAKE_CXX_STANDARD 23)
 include_directories(include)
 add_executable(redis src/main.cpp
         include/connection.h
-        src/connections.cpp)
+        src/connections.cpp
+        include/parser.h
+        src/parser.cpp)

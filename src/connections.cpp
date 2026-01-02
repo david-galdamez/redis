@@ -7,9 +7,10 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/epoll.h>
-
+#include "parser.h"
 #include "connection.h"
 #include <fcntl.h>
+#include <algorithm>
 
 ServerConnection::ServerConnection(int epoll_fd) : epoll_fd(epoll_fd) {}
 
@@ -27,7 +28,7 @@ void ServerConnection::acceptClients(int server_fd) {
         int flags = fcntl(conn_fd, F_GETFL, 0);
         fcntl(conn_fd, F_SETFL, flags | O_NONBLOCK);
 
-        std::cout << "Client connected successfully " << conn_fd << std::endl;
+        std::cout << "Client connected successfully\n";
 
         auto new_conn = new Conn();
         new_conn->fd = conn_fd;
@@ -68,11 +69,22 @@ bool ServerConnection::handleRead(int conn_fd) {
     conn->r_len += n;
 
     std::string request(conn->r_buffer, conn->r_len);
-    if (request.find("PING") != std::string::npos) {
+
+    Reader reader(request);
+    Value parsed_request = reader.readBuffer();
+    std::string command = parsed_request.array[0].bulk;
+
+    std::ranges::transform(command, command.begin(),[](const unsigned char c) {
+        return std::tolower(c);
+    });
+
+    if (command.find("ping") != std::string::npos) {
         const char *response = "+PONG\r\n";
         memcpy(conn->w_buffer, response, strlen(response));
         conn->w_len = strlen(response);
         conn->w_pos = 0;
+    } else if (command.find("echo") != std::string::npos) {
+        
     }
 
     if (conn->w_len > 0) {
