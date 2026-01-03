@@ -84,7 +84,11 @@ bool ServerConnection::handleRead(int conn_fd) {
         conn->w_len = strlen(response);
         conn->w_pos = 0;
     } else if (command.find("echo") != std::string::npos) {
-        
+        std::string parsed_response = "+" + parsed_request.array[1].bulk + "\r\n";
+        const char *response = parsed_response.c_str();
+        memcpy(conn->w_buffer, response, strlen(response));
+        conn->w_len = strlen(response);
+        conn->w_pos = 0;
     }
 
     if (conn->w_len > 0) {
