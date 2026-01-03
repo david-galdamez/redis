@@ -71,7 +71,7 @@ bool ServerConnection::handleRead(int conn_fd) {
     std::string request(conn->r_buffer, conn->r_len);
 
     Reader reader(request);
-    Value parsed_request = reader.readBuffer();
+    Value parsed_request = reader.parseRequest();
     std::string command = parsed_request.array[0].bulk;
 
     std::ranges::transform(command, command.begin(),[](const unsigned char c) {
@@ -79,16 +79,48 @@ bool ServerConnection::handleRead(int conn_fd) {
     });
 
     if (command.find("ping") != std::string::npos) {
-        const char *response = "+PONG\r\n";
-        memcpy(conn->w_buffer, response, strlen(response));
-        conn->w_len = strlen(response);
-        conn->w_pos = 0;
-    } else if (command.find("echo") != std::string::npos) {
-        std::string parsed_response = "+" + parsed_request.array[1].bulk + "\r\n";
+        Value value_response = {.type = DataType::STRING, .string = "PONG"};
+        std::string parsed_response = value_response.marshal();
         const char *response = parsed_response.c_str();
         memcpy(conn->w_buffer, response, strlen(response));
         conn->w_len = strlen(response);
         conn->w_pos = 0;
+    } else if (command.find("echo") != std::string::npos) {
+        std::string text = parsed_request.array[1].bulk;
+        Value value_response = {.type = DataType::BULK, .bulk = text};
+        std::string parsed_response = value_response.marshal();
+        const char *response = parsed_response.c_str();
+        memcpy(conn->w_buffer, response, strlen(response));
+        conn->w_len = strlen(response);
+        conn->w_pos = 0;
+    } else if (command.find("set") != std::string::npos) {
+
+        std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
+
+        storage[args[0].bulk] = args[1].bulk;
+
+        Value value_response = {.type = DataType::STRING, .string = "OK"};
+        std::string parsed_response = value_response.marshal();
+        const char *response = parsed_response.c_str();
+        memcpy(conn->w_buffer, response, strlen(response));
+        conn->w_len = strlen(response);
+        conn->w_pos = 0;
+    } else if (command.find("get") != std::string::npos) {
+        std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
+
+        std::string parsed_response;
+
+        if (storage.find(args[0].bulk) != storage.end()) {
+            Value value_response = {
+                .type = DataType::BULK, .bulk = storage[args[0].bulk]
+            };
+
+            parsed_response = value_response.marshal();
+        } else {
+            Value value_response = {
+                .type = DataType::NULLBULK;
+            }
+        }
     }
 
     if (conn->w_len > 0) {

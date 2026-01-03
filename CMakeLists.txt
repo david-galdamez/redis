@@ -8,4 +8,5 @@ add_executable(redis src/main.cpp
         include/connection.h
         src/connections.cpp
         include/parser.h
-        src/parser.cpp)
+        src/parser.cpp
+        src/marshal.cpp)

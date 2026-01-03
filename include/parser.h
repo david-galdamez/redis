@@ -13,19 +13,26 @@
 
 enum class DataType : char {
     BULK = '$',
-    ARRAY = '*'
+    STRING = '+',
+    ARRAY = '*',
 };
 
 struct Value {
     DataType type;
     std::string bulk;
+    std::string string;
     std::vector<Value> array;
+    std::string marshal();
+private:
+    std::string marshalString();
+    std::string marshalBulk();
+    std::string marshalArray();
 };
 
 class Reader {
 public:
     explicit Reader(std::string buffer);
-    Value readBuffer();
+    Value parseRequest();
 private:
     std::string buffer;
     int r_pos = 0;

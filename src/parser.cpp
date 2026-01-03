@@ -63,7 +63,7 @@ Value Reader::readArray() {
     int array_size = readInteger();
 
     for (int i = 0; i < array_size; i++) {
-        const Value new_val = readBuffer();
+        const Value new_val = parseRequest();
 
         value.array.push_back(new_val);
     }
@@ -71,7 +71,7 @@ Value Reader::readArray() {
     return value;
 }
 
-Value Reader::readBuffer() {
+Value Reader::parseRequest() {
     switch (char type = readByte()) {
         case static_cast<char>(DataType::BULK):
             return readBulk();

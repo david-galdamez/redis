@@ -36,6 +36,7 @@ public:
     bool isClosing(int conn_fd);
     void handleClose(int conn_fd);
 private:
+    std::unordered_map<std::string, std::string> storage;
     int epoll_fd;
     std::unordered_map<int, Conn *> clients;
 };
