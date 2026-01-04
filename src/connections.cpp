@@ -12,8 +12,8 @@
 #include <fcntl.h>
 #include <algorithm>
 
-ServerConnection::ServerConnection(int epoll_fd) : epoll_fd(epoll_fd) {}
-
+ServerConnection::ServerConnection(int epoll_fd) : epoll_fd(epoll_fd) {
+}
 
 void ServerConnection::acceptClients(int server_fd) {
     while (true) {
@@ -74,54 +74,111 @@ bool ServerConnection::handleRead(int conn_fd) {
     Value parsed_request = reader.parseRequest();
     std::string command = parsed_request.array[0].bulk;
 
-    std::ranges::transform(command, command.begin(),[](const unsigned char c) {
+    std::ranges::transform(command, command.begin(), [](const unsigned char c) {
         return std::tolower(c);
     });
 
+    std::string parsed_response;
+
     if (command.find("ping") != std::string::npos) {
         Value value_response = {.type = DataType::STRING, .string = "PONG"};
-        std::string parsed_response = value_response.marshal();
-        const char *response = parsed_response.c_str();
-        memcpy(conn->w_buffer, response, strlen(response));
-        conn->w_len = strlen(response);
-        conn->w_pos = 0;
+        parsed_response = value_response.marshal();
     } else if (command.find("echo") != std::string::npos) {
         std::string text = parsed_request.array[1].bulk;
         Value value_response = {.type = DataType::BULK, .bulk = text};
-        std::string parsed_response = value_response.marshal();
-        const char *response = parsed_response.c_str();
-        memcpy(conn->w_buffer, response, strlen(response));
-        conn->w_len = strlen(response);
-        conn->w_pos = 0;
+        parsed_response = value_response.marshal();
     } else if (command.find("set") != std::string::npos) {
-
         std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
 
-        storage[args[0].bulk] = args[1].bulk;
+        if (args.size() < 2) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        StoragedValue new_value;
+        std::cout << parsed_request.array[1].bulk << std::endl,
+        new_value = StoragedValue{
+            .value = args[1].bulk,
+        };
+
+        if (args.size() > 2) {
+            std::vector optional_args(args.begin() + 2, args.end());
+            if (optional_args.size() != 2) {
+                std::cerr << "Invalid arguments\n";
+                return false;
+            }
+
+            std::string optional_command = optional_args[0].bulk;
+            std::ranges::transform(optional_command, optional_command.begin(), [](const unsigned char c) {
+                return std::tolower(c);
+            });
+            if (optional_command.find("ex") != std::string::npos) {
+
+                int seconds = std::stoi(optional_args[1].bulk);
+                if (seconds <= 0) {
+                    std::cerr << "Invalid EX value\n";
+                    return false;
+                }
+                auto expires_at = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
+
+                new_value.expirest_at = expires_at;
+            } else if (optional_command.find("px") != std::string::npos) {
+
+                int milliseconds = std::stoi(optional_args[1].bulk);
+                if (milliseconds <= 0) {
+                    std::cerr << "Invalid EX value\n";
+                    return false;
+                }
+                auto expires_at = std::chrono::system_clock::now() + std::chrono::milliseconds(milliseconds);
+
+                new_value.expirest_at = expires_at;
+            }
+
+        } else {
+            new_value.expirest_at = std::nullopt;
+        }
+        storage[args[0].bulk] = new_value;
 
         Value value_response = {.type = DataType::STRING, .string = "OK"};
-        std::string parsed_response = value_response.marshal();
-        const char *response = parsed_response.c_str();
-        memcpy(conn->w_buffer, response, strlen(response));
-        conn->w_len = strlen(response);
-        conn->w_pos = 0;
+        parsed_response = value_response.marshal();
     } else if (command.find("get") != std::string::npos) {
         std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
+        Value value_response;
+        const auto& key = args[0].bulk;
 
-        std::string parsed_response;
-
-        if (storage.find(args[0].bulk) != storage.end()) {
-            Value value_response = {
-                .type = DataType::BULK, .bulk = storage[args[0].bulk]
+        if (!storage.contains(key)) {
+            value_response = {
+                .type = DataType::NULLBULK,
             };
-
-            parsed_response = value_response.marshal();
         } else {
-            Value value_response = {
-                .type = DataType::NULLBULK;
+
+            auto& value = storage[key];
+
+            if (value.expirest_at) {
+                auto now = std::chrono::system_clock::now();
+                if (now > *value.expirest_at) {
+                    storage.erase(key);
+                    value_response = {
+                        .type = DataType::NULLBULK,
+                    };
+                } else {
+                    value_response = {
+                        .type = DataType::BULK, .bulk = value.value,
+                    };
+                }
+            } else {
+                value_response = {
+                    .type = DataType::BULK, .bulk = value.value,
+                };
             }
         }
+        parsed_response = value_response.marshal();
     }
+
+    const char *response = parsed_response.c_str();
+    memcpy(conn->w_buffer, response, strlen(response));
+    conn->w_len = strlen(response);
+    conn->w_pos = 0;
 
     if (conn->w_len > 0) {
         epoll_event new_ev{};

@@ -13,6 +13,7 @@
 
 enum class DataType : char {
     BULK = '$',
+    NULLBULK = NULL,
     STRING = '+',
     ARRAY = '*',
 };
@@ -26,6 +27,7 @@ struct Value {
 private:
     std::string marshalString();
     std::string marshalBulk();
+    static std::string marshalNullBulk();
     std::string marshalArray();
 };
 

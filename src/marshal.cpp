@@ -35,12 +35,20 @@ std::string Value::marshalBulk() {
     return result;
 }
 
+std::string Value::marshalNullBulk() {
+    std::string result("$-1\r\n");
+
+    return result;
+}
+
 std::string Value::marshal() {
     switch (type) {
         case DataType::STRING:
             return marshalString();
         case DataType::BULK:
             return marshalBulk();
+        case DataType::NULLBULK:
+            return marshalNullBulk();
         case DataType::ARRAY:
             break;
     }
