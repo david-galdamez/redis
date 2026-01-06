@@ -97,9 +97,9 @@ bool ServerConnection::handleRead(int conn_fd) {
 
         StoragedValue new_value;
         std::cout << parsed_request.array[1].bulk << std::endl,
-        new_value = StoragedValue{
-            .value = args[1].bulk,
-        };
+                new_value = StoragedValue{
+                    .value = args[1].bulk,
+                };
 
         if (args.size() > 2) {
             std::vector optional_args(args.begin() + 2, args.end());
@@ -113,7 +113,6 @@ bool ServerConnection::handleRead(int conn_fd) {
                 return std::tolower(c);
             });
             if (optional_command.find("ex") != std::string::npos) {
-
                 int seconds = std::stoi(optional_args[1].bulk);
                 if (seconds <= 0) {
                     std::cerr << "Invalid EX value\n";
@@ -123,7 +122,6 @@ bool ServerConnection::handleRead(int conn_fd) {
 
                 new_value.expirest_at = expires_at;
             } else if (optional_command.find("px") != std::string::npos) {
-
                 int milliseconds = std::stoi(optional_args[1].bulk);
                 if (milliseconds <= 0) {
                     std::cerr << "Invalid EX value\n";
@@ -133,7 +131,6 @@ bool ServerConnection::handleRead(int conn_fd) {
 
                 new_value.expirest_at = expires_at;
             }
-
         } else {
             new_value.expirest_at = std::nullopt;
         }
@@ -144,15 +141,14 @@ bool ServerConnection::handleRead(int conn_fd) {
     } else if (command.find("get") != std::string::npos) {
         std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
         Value value_response;
-        const auto& key = args[0].bulk;
+        const auto &key = args[0].bulk;
 
         if (!storage.contains(key)) {
             value_response = {
                 .type = DataType::NULLBULK,
             };
         } else {
-
-            auto& value = storage[key];
+            auto &value = storage[key];
 
             if (value.expirest_at) {
                 auto now = std::chrono::system_clock::now();
@@ -172,6 +168,20 @@ bool ServerConnection::handleRead(int conn_fd) {
                 };
             }
         }
+        parsed_response = value_response.marshal();
+    } else if (command.find("rpush") != std::string::npos) {
+        std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
+
+        if (args.size() < 2) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        lists[args[0].bulk].push_back(args[1].bulk);
+
+        Value value_response =  {
+            .type = DataType::INTEGER, .integer = static_cast<int>(lists[args[0].bulk].size()),
+        };
         parsed_response = value_response.marshal();
     }
 

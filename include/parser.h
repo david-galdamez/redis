@@ -12,6 +12,7 @@
 #pragma once
 
 enum class DataType : char {
+    INTEGER = ':',
     BULK = '$',
     NULLBULK = NULL,
     STRING = '+',
@@ -20,6 +21,7 @@ enum class DataType : char {
 
 struct Value {
     DataType type;
+    int integer;
     std::string bulk;
     std::string string;
     std::vector<Value> array;
@@ -28,6 +30,7 @@ private:
     std::string marshalString();
     std::string marshalBulk();
     static std::string marshalNullBulk();
+    std::string marshalInteger();
     std::string marshalArray();
 };
 

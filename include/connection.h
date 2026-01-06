@@ -42,6 +42,7 @@ public:
     bool isClosing(int conn_fd);
     void handleClose(int conn_fd);
 private:
+    std::unordered_map<std::string, std::vector<std::string>> lists;
     std::unordered_map<std::string, StoragedValue> storage;
     int epoll_fd;
     std::unordered_map<int, Conn *> clients;
