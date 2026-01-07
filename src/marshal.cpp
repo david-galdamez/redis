@@ -45,6 +45,12 @@ std::string Value::marshalNullBulk() {
     return result;
 }
 
+std::string Value::marshalNullArray() {
+    std::string result("*-1\r\n");
+
+    return result;
+}
+
 std::string Value::marshalInteger() {
     std::string result;
 
@@ -85,6 +91,8 @@ std::string Value::marshal() {
             return marshalBulk();
         case DataType::NULLBULK:
             return marshalNullBulk();
+        case DataType::NULLARRAY:
+            return marshalNullArray();
         case DataType::ARRAY:
             return marshalArray();
         default:

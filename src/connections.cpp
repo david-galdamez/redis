@@ -311,7 +311,9 @@ bool ServerConnection::handleRead(int conn_fd) {
             conn->blocked = true;
             conn->block_keys.push_back(key);
             if (timeout > 0) {
-                conn->block_expire_at = std::chrono::system_clock::now() + std::chrono::seconds(timeout);
+                conn->block_expire_at = std::chrono::steady_clock::now() + std::chrono::seconds(timeout);
+            } else {
+                conn->block_expire_at.reset();
             }
             blocked_clients_by_key[key].push_back(conn);
             blocked_clients.push_back(conn);
@@ -376,6 +378,7 @@ void ServerConnection::tryWakeBlocked(const std::string &key) {
         blocked_conn->blocked = false;
 
         blocked_clients_by_key[key].pop_front();
+        blocked_clients.remove(blocked_conn);
 
         epoll_event new_ev{};
         new_ev.data.fd = blocked_conn->fd;
@@ -383,11 +386,10 @@ void ServerConnection::tryWakeBlocked(const std::string &key) {
 
         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, blocked_conn->fd, &new_ev);
         blocked_conn->r_len = 0;
-    }
-}
+    }}
 
 bool ServerConnection::handleWrite(int conn_fd) {
-    if (clients.find(conn_fd) == clients.end()) {
+    if (!clients.contains(conn_fd)) {
         return false;
     }
 
@@ -416,7 +418,7 @@ bool ServerConnection::handleWrite(int conn_fd) {
 }
 
 bool ServerConnection::close(int conn_fd) {
-    if (clients.find(conn_fd) == clients.end()) {
+    if (!clients.contains(conn_fd)) {
         return false;
     }
 
@@ -438,34 +440,40 @@ void ServerConnection::handleClose(int conn_fd) {
 }
 
 void ServerConnection::handleTimeouts() {
-    for (auto conn: blocked_clients) {
-        if (!conn->block_expire_at) {
-            blocked_clients.push_back(conn);
+    if (blocked_clients.empty()) return;
+
+    auto now = std::chrono::steady_clock::now();
+    auto it = blocked_clients.begin();
+
+    while (it != blocked_clients.end()) {
+        Conn* conn = *it;
+
+        if (!conn->block_expire_at || now < *conn->block_expire_at) {
+            ++it;
             continue;
         }
 
-        auto now = std::chrono::system_clock::now();
-        if (now < *conn->block_expire_at) {
-            blocked_clients.push_back(conn);
-            continue;
-        }
-
-        Value value_response = {
-            .type = DataType::NULLBULK,
+        Value resp = {
+            .type = DataType::NULLARRAY,
         };
-        std::string parsed_response = value_response.marshal();
-        const char *response = parsed_response.c_str();
-        memcpy(conn->w_buffer, response, strlen(response));
-        conn->w_len = strlen(response);
+        std::string out = resp.marshal();
+        memcpy(conn->w_buffer, out.c_str(), out.size());
+        conn->w_len = out.size();
         conn->w_pos = 0;
+
         conn->blocked = false;
         conn->block_expire_at.reset();
 
-        epoll_event new_ev{};
-        new_ev.data.fd = conn->fd;
-        new_ev.events = EPOLLIN | EPOLLOUT;
-        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, conn->fd, &new_ev);
+        for (const auto& key : conn->block_keys) {
+            blocked_clients_by_key[key].remove(conn);
+        }
+        conn->block_keys.clear();
 
-        blocked_clients.remove(conn);
+        epoll_event ev{};
+        ev.data.fd = conn->fd;
+        ev.events = EPOLLIN | EPOLLOUT;
+        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, conn->fd, &ev);
+
+        it = blocked_clients.erase(it);
     }
 }

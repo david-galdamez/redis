@@ -1,9 +1,7 @@
 #include <iostream>
-#include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netdb.h>
 #include <sys/epoll.h>
 #include <arpa/inet.h>
 #include "connection.h"
@@ -66,13 +64,13 @@ int main() {
 
     while (true) {
 
-        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, 5);
         if (nfds < 0) {
             std::cerr << "Epoll wait failed\n";
             return 1;
         }
 
-        //redis_server.handleTimeouts();
+        redis_server.handleTimeouts();
 
         for (int n = 0; n < nfds; ++n) {
 

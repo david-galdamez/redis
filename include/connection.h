@@ -28,7 +28,7 @@ struct Conn {
     bool closing = false;
     bool blocked = false;
     std::vector<std::string> block_keys;
-    std::optional<std::chrono::system_clock::time_point> block_expire_at = std::nullopt;
+    std::optional<std::chrono::steady_clock::time_point> block_expire_at = std::nullopt;
 };
 
 struct StoragedValue {
@@ -48,7 +48,6 @@ public:
     void handleTimeouts();
 private:
     void tryWakeBlocked(const std::string &key);
-    void removeFromBlockedLists(Conn *conn);
     std::unordered_map<std::string, std::list<std::string>> lists;
     std::unordered_map<std::string, StoragedValue> storage;
     std::unordered_map<std::string, std::list<Conn *>> blocked_clients_by_key;

@@ -14,7 +14,8 @@
 enum class DataType : char {
     INTEGER = ':',
     BULK = '$',
-    NULLBULK = NULL,
+    NULLBULK,
+    NULLARRAY,
     STRING = '+',
     ARRAY = '*',
 };
@@ -29,7 +30,8 @@ struct Value {
 private:
     std::string marshalString();
     std::string marshalBulk();
-    static std::string marshalNullBulk();
+    std::string marshalNullBulk();
+    std::string marshalNullArray();
     std::string marshalInteger();
     std::string marshalArray();
 };
