@@ -51,6 +51,10 @@ bool ServerConnection::handleRead(int conn_fd) {
 
     const auto conn = clients[conn_fd];
 
+    if (conn->blocked) {
+        return true;
+    }
+
     ssize_t n = recv(conn->fd, conn->r_buffer + conn->r_len, sizeof(conn->r_buffer) - conn->r_len, 0);
     if (n == 0) {
         conn->closing = true;
@@ -82,12 +86,12 @@ bool ServerConnection::handleRead(int conn_fd) {
     std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
     Value value_response;
 
-    if (command.find("ping") != std::string::npos) {
+    if (command == "ping") {
         value_response = {.type = DataType::STRING, .string = "PONG"};
-    } else if (command.find("echo") != std::string::npos) {
+    } else if (command == "echo") {
         std::string text = parsed_request.array[1].bulk;
         value_response = {.type = DataType::BULK, .bulk = text};
-    } else if (command.find("set") != std::string::npos) {
+    } else if (command == "set") {
         if (args.size() < 2) {
             std::cerr << "Invalid arguments\n";
             return false;
@@ -134,7 +138,7 @@ bool ServerConnection::handleRead(int conn_fd) {
         storage[args[0].bulk] = new_value;
 
         value_response = {.type = DataType::STRING, .string = "OK"};
-    } else if (command.find("get") != std::string::npos) {
+    } else if (command == "get") {
         const auto &key = args[0].bulk;
 
         if (!storage.contains(key)) {
@@ -162,23 +166,25 @@ bool ServerConnection::handleRead(int conn_fd) {
                 };
             }
         }
-    } else if (command.find("rpush") != std::string::npos) {
+    } else if (command == "rpush") {
         if (args.size() < 2) {
             std::cerr << "Invalid arguments\n";
             return false;
         }
 
-        auto& key = args[0].bulk;
-        auto& list = lists[key];
+        auto &key = args[0].bulk;
+        auto &list = lists[key];
 
         for (int i = 1; i < args.size(); i++) {
             list.push_back(args[i].bulk);
         }
 
-        value_response =  {
+        value_response = {
             .type = DataType::INTEGER, .integer = static_cast<int>(list.size()),
         };
-    } else if (command.find("lrange") != std::string::npos) {
+
+        tryWakeBlocked(key);
+    } else if (command == "lrange") {
         value_response = {
             .type = DataType::ARRAY,
         };
@@ -188,8 +194,8 @@ bool ServerConnection::handleRead(int conn_fd) {
             return false;
         }
 
-        auto& key = args[0].bulk;
-        auto& list = lists[key];
+        auto &key = args[0].bulk;
+        auto &list = lists[key];
 
         int start = std::stoi(args[1].bulk);
         int end = std::stoi(args[2].bulk);
@@ -200,7 +206,6 @@ bool ServerConnection::handleRead(int conn_fd) {
 
 
         if (start < end || start < size) {
-
             auto it = list.begin();
             std::advance(it, start);
             for (int i = start; i <= (end >= size - 1 ? size - 1 : end); i++, ++it) {
@@ -211,16 +216,16 @@ bool ServerConnection::handleRead(int conn_fd) {
                 value_response.array.push_back(new_bulk);
             }
         }
-    } else if (command.find("lpush") != std::string::npos) {
+    } else if (command == "lpush") {
         if (args.size() < 3) {
             std::cerr << "Invalid arguments\n";
             return false;
         }
 
-        auto& key = args[0].bulk;
-        auto& list = lists[key];
+        auto &key = args[0].bulk;
+        auto &list = lists[key];
 
-        for (int i = static_cast<int>(args.size() - 1) ; i > 0 ; i--) {
+        for (int i = static_cast<int>(args.size() - 1); i > 0; i--) {
             list.push_back(args[i].bulk);
         }
 
@@ -228,7 +233,9 @@ bool ServerConnection::handleRead(int conn_fd) {
             .type = DataType::INTEGER,
             .integer = static_cast<int>(list.size()),
         };
-    } else if (command.find("llen") != std::string::npos) {
+
+        tryWakeBlocked(key);
+    } else if (command == "llen") {
         if (args.empty()) {
             std::cerr << "Invalid arguments\n";
             return false;
@@ -238,22 +245,22 @@ bool ServerConnection::handleRead(int conn_fd) {
             .type = DataType::INTEGER,
         };
 
-        auto& key = args[0].bulk;
+        auto &key = args[0].bulk;
 
         if (!lists.contains(key)) {
             value_response.integer = 0;
         } else {
-            auto& list = lists[key];
+            auto &list = lists[key];
             value_response.integer = static_cast<int>(list.size());
         }
-    } else if (command.find("lpop") != std::string::npos) {
+    } else if (command == "lpop") {
         if (args.empty()) {
             std::cerr << "Invalid arguments\n";
             return false;
         }
 
-        auto& key = args[0].bulk;
-        auto& list = lists[key];
+        auto &key = args[0].bulk;
+        auto &list = lists[key];
 
         if (list.empty()) {
             value_response = {
@@ -261,7 +268,7 @@ bool ServerConnection::handleRead(int conn_fd) {
             };
         } else {
             if (args.size() > 1) {
-                int num = std::stoi(args[1].bulk) ;
+                int num = std::stoi(args[1].bulk);
                 value_response = {
                     .type = DataType::ARRAY
                 };
@@ -279,6 +286,54 @@ bool ServerConnection::handleRead(int conn_fd) {
                 };
                 list.pop_front();
             }
+        }
+    } else if (command == "blpop") {
+        if (args.empty()) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        auto &key = args[0].bulk;
+        int timeout;
+
+        try {
+            timeout = std::stoi(args[1].bulk);
+            if (timeout < 0) {
+                std::cerr << "Invalid timeout\n";
+                return false;
+            }
+        } catch (const std::exception &e) {
+            std::cerr << "Invalid arguments: " << e.what() << std::endl;
+            return false;
+        }
+
+        if (!lists.contains(key) || (lists.contains(key) && lists[key].empty())) {
+            conn->blocked = true;
+            conn->block_keys.push_back(key);
+            if (timeout > 0) {
+                conn->block_expire_at = std::chrono::system_clock::now() + std::chrono::seconds(timeout);
+            }
+            blocked_clients_by_key[key].push_back(conn);
+            blocked_clients.push_back(conn);
+            conn->r_len = 0;
+            return true;
+        }
+
+        if (lists.contains(key) && !lists[key].empty()) {
+            std::string value = lists[key].front();
+            lists[key].pop_front();
+
+            value_response = {
+                .type = DataType::ARRAY
+            };
+            value_response.array.push_back({
+                .type = DataType::BULK,
+                .bulk = key
+            });
+            value_response.array.push_back({
+                .type = DataType::BULK,
+                .bulk = value
+            });
         }
     }
 
@@ -299,6 +354,36 @@ bool ServerConnection::handleRead(int conn_fd) {
 
     conn->r_len = 0;
     return true;
+}
+
+void ServerConnection::tryWakeBlocked(const std::string &key) {
+    if (blocked_clients_by_key.contains(key) && !blocked_clients_by_key[key].empty()) {
+        auto &list = lists[key];
+        std::string first_value = list.front();
+        list.pop_front();
+        Conn *blocked_conn = blocked_clients_by_key[key].front();
+
+        Value resp = {
+            .type = DataType::ARRAY,
+        };
+        resp.array.push_back({.type = DataType::BULK, .bulk = key});
+        resp.array.push_back({.type = DataType::BULK, .bulk = first_value});
+        std::string parsed_blocked_response = resp.marshal();
+        const char *blocked_response = parsed_blocked_response.c_str();
+        memcpy(blocked_conn->w_buffer, blocked_response, strlen(blocked_response));
+        blocked_conn->w_len = strlen(blocked_response);
+        blocked_conn->w_pos = 0;
+        blocked_conn->blocked = false;
+
+        blocked_clients_by_key[key].pop_front();
+
+        epoll_event new_ev{};
+        new_ev.data.fd = blocked_conn->fd;
+        new_ev.events = EPOLLIN | EPOLLOUT;
+
+        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, blocked_conn->fd, &new_ev);
+        blocked_conn->r_len = 0;
+    }
 }
 
 bool ServerConnection::handleWrite(int conn_fd) {
@@ -350,4 +435,37 @@ void ServerConnection::handleClose(int conn_fd) {
     close(conn_fd);
     delete clients[conn_fd];
     clients.erase(conn_fd);
+}
+
+void ServerConnection::handleTimeouts() {
+    for (auto conn: blocked_clients) {
+        if (!conn->block_expire_at) {
+            blocked_clients.push_back(conn);
+            continue;
+        }
+
+        auto now = std::chrono::system_clock::now();
+        if (now < *conn->block_expire_at) {
+            blocked_clients.push_back(conn);
+            continue;
+        }
+
+        Value value_response = {
+            .type = DataType::NULLBULK,
+        };
+        std::string parsed_response = value_response.marshal();
+        const char *response = parsed_response.c_str();
+        memcpy(conn->w_buffer, response, strlen(response));
+        conn->w_len = strlen(response);
+        conn->w_pos = 0;
+        conn->blocked = false;
+        conn->block_expire_at.reset();
+
+        epoll_event new_ev{};
+        new_ev.data.fd = conn->fd;
+        new_ev.events = EPOLLIN | EPOLLOUT;
+        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, conn->fd, &new_ev);
+
+        blocked_clients.remove(conn);
+    }
 }

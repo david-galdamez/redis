@@ -26,6 +26,9 @@ struct Conn {
     std::size_t w_pos = 0;
 
     bool closing = false;
+    bool blocked = false;
+    std::vector<std::string> block_keys;
+    std::optional<std::chrono::system_clock::time_point> block_expire_at = std::nullopt;
 };
 
 struct StoragedValue {
@@ -42,9 +45,14 @@ public:
     bool close(int conn_fd);
     bool isClosing(int conn_fd);
     void handleClose(int conn_fd);
+    void handleTimeouts();
 private:
+    void tryWakeBlocked(const std::string &key);
+    void removeFromBlockedLists(Conn *conn);
     std::unordered_map<std::string, std::list<std::string>> lists;
     std::unordered_map<std::string, StoragedValue> storage;
+    std::unordered_map<std::string, std::list<Conn *>> blocked_clients_by_key;
+    std::list<Conn *> blocked_clients;
     int epoll_fd;
     std::unordered_map<int, Conn *> clients;
 };

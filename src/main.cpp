@@ -65,11 +65,14 @@ int main() {
     ServerConnection redis_server(epoll_fd);
 
     while (true) {
+
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         if (nfds < 0) {
             std::cerr << "Epoll wait failed\n";
             return 1;
         }
+
+        //redis_server.handleTimeouts();
 
         for (int n = 0; n < nfds; ++n) {
 
@@ -85,7 +88,10 @@ int main() {
             }
 
             if (events[n].events & EPOLLIN) {
-                redis_server.handleRead(current_fd);
+                bool result = redis_server.handleRead(current_fd);
+                if (!result) {
+                    redis_server.close(current_fd);
+                }
             }
 
             if (events[n].events & EPOLLOUT) {
