@@ -79,27 +79,24 @@ bool ServerConnection::handleRead(int conn_fd) {
     });
 
     std::string parsed_response;
+    std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
+    Value value_response;
 
     if (command.find("ping") != std::string::npos) {
-        Value value_response = {.type = DataType::STRING, .string = "PONG"};
-        parsed_response = value_response.marshal();
+        value_response = {.type = DataType::STRING, .string = "PONG"};
     } else if (command.find("echo") != std::string::npos) {
         std::string text = parsed_request.array[1].bulk;
-        Value value_response = {.type = DataType::BULK, .bulk = text};
-        parsed_response = value_response.marshal();
+        value_response = {.type = DataType::BULK, .bulk = text};
     } else if (command.find("set") != std::string::npos) {
-        std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
-
         if (args.size() < 2) {
             std::cerr << "Invalid arguments\n";
             return false;
         }
 
         StoragedValue new_value;
-        std::cout << parsed_request.array[1].bulk << std::endl,
-                new_value = StoragedValue{
-                    .value = args[1].bulk,
-                };
+        new_value = StoragedValue{
+            .value = args[1].bulk,
+        };
 
         if (args.size() > 2) {
             std::vector optional_args(args.begin() + 2, args.end());
@@ -136,11 +133,8 @@ bool ServerConnection::handleRead(int conn_fd) {
         }
         storage[args[0].bulk] = new_value;
 
-        Value value_response = {.type = DataType::STRING, .string = "OK"};
-        parsed_response = value_response.marshal();
+        value_response = {.type = DataType::STRING, .string = "OK"};
     } else if (command.find("get") != std::string::npos) {
-        std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
-        Value value_response;
         const auto &key = args[0].bulk;
 
         if (!storage.contains(key)) {
@@ -168,22 +162,127 @@ bool ServerConnection::handleRead(int conn_fd) {
                 };
             }
         }
-        parsed_response = value_response.marshal();
     } else if (command.find("rpush") != std::string::npos) {
-        std::vector args(parsed_request.array.begin() + 1, parsed_request.array.end());
-
         if (args.size() < 2) {
             std::cerr << "Invalid arguments\n";
             return false;
         }
 
-        lists[args[0].bulk].push_back(args[1].bulk);
+        auto& key = args[0].bulk;
+        auto& list = lists[key];
 
-        Value value_response =  {
-            .type = DataType::INTEGER, .integer = static_cast<int>(lists[args[0].bulk].size()),
+        for (int i = 1; i < args.size(); i++) {
+            list.push_back(args[i].bulk);
+        }
+
+        value_response =  {
+            .type = DataType::INTEGER, .integer = static_cast<int>(list.size()),
         };
-        parsed_response = value_response.marshal();
+    } else if (command.find("lrange") != std::string::npos) {
+        value_response = {
+            .type = DataType::ARRAY,
+        };
+
+        if (args.size() < 3) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        auto& key = args[0].bulk;
+        auto& list = lists[key];
+
+        int start = std::stoi(args[1].bulk);
+        int end = std::stoi(args[2].bulk);
+        int size = static_cast<int>(list.size());
+
+        if (start < 0) start += size;
+        if (end < 0) end += size;
+
+
+        if (start < end || start < size) {
+
+            auto it = list.begin();
+            std::advance(it, start);
+            for (int i = start; i <= (end >= size - 1 ? size - 1 : end); i++, ++it) {
+                Value new_bulk = {
+                    .type = DataType::BULK,
+                    .bulk = *it,
+                };
+                value_response.array.push_back(new_bulk);
+            }
+        }
+    } else if (command.find("lpush") != std::string::npos) {
+        if (args.size() < 3) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        auto& key = args[0].bulk;
+        auto& list = lists[key];
+
+        for (int i = static_cast<int>(args.size() - 1) ; i > 0 ; i--) {
+            list.push_back(args[i].bulk);
+        }
+
+        value_response = {
+            .type = DataType::INTEGER,
+            .integer = static_cast<int>(list.size()),
+        };
+    } else if (command.find("llen") != std::string::npos) {
+        if (args.empty()) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        value_response = {
+            .type = DataType::INTEGER,
+        };
+
+        auto& key = args[0].bulk;
+
+        if (!lists.contains(key)) {
+            value_response.integer = 0;
+        } else {
+            auto& list = lists[key];
+            value_response.integer = static_cast<int>(list.size());
+        }
+    } else if (command.find("lpop") != std::string::npos) {
+        if (args.empty()) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        auto& key = args[0].bulk;
+        auto& list = lists[key];
+
+        if (list.empty()) {
+            value_response = {
+                .type = DataType::NULLBULK,
+            };
+        } else {
+            if (args.size() > 1) {
+                int num = std::stoi(args[1].bulk) ;
+                value_response = {
+                    .type = DataType::ARRAY
+                };
+                for (int i = 0; i < num; i++) {
+                    Value new_bulk = {
+                        .type = DataType::BULK,
+                        .bulk = list.front(),
+                    };
+                    value_response.array.push_back(new_bulk);
+                    list.pop_front();
+                }
+            } else {
+                value_response = {
+                    .type = DataType::BULK, .bulk = list.front(),
+                };
+                list.pop_front();
+            }
+        }
     }
+
+    parsed_response = value_response.marshal();
 
     const char *response = parsed_response.c_str();
     memcpy(conn->w_buffer, response, strlen(response));

@@ -2,6 +2,7 @@
 // Created by mamia on 2/1/2026.
 //
 
+#include <array>
 #include <iostream>
 #include <ostream>
 
@@ -58,6 +59,22 @@ std::string Value::marshalInteger() {
     return result;
 }
 
+std::string Value::marshalArray() {
+    std::string result;
+    result.push_back(static_cast<char>(DataType::ARRAY));
+    std::string size = std::to_string(array.size());
+    for (char c : size) {
+        result.push_back(c);
+    }
+    result.push_back('\r');
+    result.push_back('\n');
+    for (Value new_value : array) {
+        result.append(new_value.marshal());
+    }
+
+    return result;
+}
+
 std::string Value::marshal() {
     switch (type) {
         case DataType::STRING:
@@ -69,6 +86,8 @@ std::string Value::marshal() {
         case DataType::NULLBULK:
             return marshalNullBulk();
         case DataType::ARRAY:
-            break;
+            return marshalArray();
+        default:
+            return "Unknown type";
     }
 }
