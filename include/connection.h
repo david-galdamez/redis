@@ -36,6 +36,11 @@ struct StoragedValue {
     std::optional<std::chrono::system_clock::time_point> expirest_at;
 };
 
+struct Streams {
+    std::string id;
+    std::vector<std::pair<std::string, std::string>> streams;
+};
+
 class ServerConnection {
 public:
     ServerConnection(int epoll_fd);
@@ -50,6 +55,7 @@ private:
     void tryWakeBlocked(const std::string &key);
     std::unordered_map<std::string, std::list<std::string>> lists;
     std::unordered_map<std::string, StoragedValue> storage;
+    std::unordered_map<std::string, std::list<Streams>> streams;
     std::unordered_map<std::string, std::list<Conn *>> blocked_clients_by_key;
     std::list<Conn *> blocked_clients;
     int epoll_fd;

@@ -337,6 +337,26 @@ bool ServerConnection::handleRead(int conn_fd) {
                 .bulk = value
             });
         }
+    } else if (command == "type") {
+        if (args.empty()) {
+            std::cerr << "Invalid arguments\n";
+            return false;
+        }
+
+        auto& key = args[0].bulk;
+        value_response = {
+            .type = DataType::STRING,
+        };
+
+        if (storage.contains(key)) {
+            value_response.string = "string";
+        } else if (streams.contains(key)) {
+            value_response.string = "stream";
+        }else {
+            value_response.string = "none";
+        }
+    } else if (command == "xadd") {
+
     }
 
     parsed_response = value_response.marshal();
